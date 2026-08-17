@@ -72,6 +72,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'moonshot-intl', name: 'Kimi', region: 'en', baseURL: 'https://api.moonshot.ai/v1', keyUrl: 'https://platform.moonshot.ai/console/api-keys' },
   { id: 'moonshot', name: 'Kimi', region: 'zh', baseURL: 'https://api.moonshot.cn/v1', keyUrl: 'https://platform.moonshot.cn/console/api-keys' },
   { id: 'ollama', name: 'Ollama', baseURL: 'http://localhost:11434/v1', noKey: true },
+  // Local MLX DiffusionGemma sidecar (REG embeddings): Apple Silicon only.
+  // Keyless OpenAI-compatible endpoint on loopback; `/v1/models` returns the
+  // standard OpenAI shape so the normal probe path works.
+  { id: 'diffusion-local', name: 'DiffusionGemma (REG)', baseURL: 'http://127.0.0.1:8080/v1', noKey: true, recommend: ['mlx-community/diffusiongemma-26B-A4B-it-4bit'], hintKey: 'provider.diffusionHint' },
   // ChatGPT plan via the openai-oauth local bridge (no CORS on the bridge,
   // so requests must ride the local Node proxy — hosted deployments cannot
   // reach a user's 127.0.0.1 anyway; the hint spells this out).

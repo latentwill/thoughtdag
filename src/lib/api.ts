@@ -5,6 +5,7 @@ import { t, fmt } from '../i18n';
 import { storedProviders } from './runtime-providers';
 import { directProvider, directLlmStream, directLlmCall } from './direct-llm';
 import { errorText } from './error-text';
+import type { DiffusionConfig } from '../types';
 
 const API_URL = `${API_BASE}/api/claude`;
 // Providers only travel when configured; undefined keeps .env-only setups
@@ -118,7 +119,7 @@ async function guardDirectVision(modelId: string | undefined, images?: ImageAtta
 }
 
 // Non-streaming call (used for background summaries)
-export async function llmCall(contextMessages: ContextMessage[], images?: ImageAttachment[], modelOverride?: string): Promise<string> {
+export async function llmCall(contextMessages: ContextMessage[], images?: ImageAttachment[], modelOverride?: string, diffusion?: DiffusionConfig): Promise<string> {
   const modelId = modelOverride || useUiStore.getState().selectedModel || undefined;
   images = await imagesForModel(modelId, images);
   const direct = directProvider(modelId);
@@ -134,6 +135,7 @@ export async function llmCall(contextMessages: ContextMessage[], images?: ImageA
         messages: contextMessages,
         images: images?.length ? images : undefined,
         model: modelOverride || useUiStore.getState().selectedModel || undefined,
+        diffusion: diffusion ?? undefined,
         // browser-configured providers ride along on EVERY request — the
         // proxy builds a per-request registry and forgets it (stateless)
         providers: statelessProviders(),
@@ -181,6 +183,7 @@ export async function llmCallStream(
   callbacks?: StreamCallbacks,
   toolPrefs?: ToolPrefs,
   modelOverride?: string,
+  diffusion?: DiffusionConfig,
 ): Promise<string> {
   // On the Workers deployment, OpenRouter models stream straight from the
   // browser — the proxy's CPU allowance can't survive big contexts + heavy
@@ -207,6 +210,7 @@ export async function llmCallStream(
           : {}),
         ...(useUiStore.getState().anysearchKey ? { anysearchKey: useUiStore.getState().anysearchKey } : {}),
         model: modelOverride || useUiStore.getState().selectedModel || undefined,
+        diffusion: diffusion ?? undefined,
         providers: statelessProviders(),
       }),
       signal,
@@ -276,4 +280,23 @@ export async function llmCallStream(
     // AbortError passes through untouched for stop-generation handling
     throw wrapError(err);
   }
+}
+
+export interface RegEmbedding {
+  id: string;
+  object: string;
+  kind: 'prefix' | 'deep_prefix';
+  filename: string;
+}
+
+// List available REG embeddings from the local diffusion sidecar, proxied
+// through server.mjs (the sidecar stays loopback-only behind the proxy).
+export async function fetchRegEmbeddings(): Promise<RegEmbedding[]> {
+  const res = await fetch(`${API_BASE}/api/reg-embeddings`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(errorText(err, `HTTP ${res.status}`));
+  }
+  const data = await res.json();
+  return data.data ?? [];
 }

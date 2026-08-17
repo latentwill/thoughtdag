@@ -1,4 +1,4 @@
-import type { ThoughtNode, ThoughtEdge, Highlight, Attachment, CanvasEvent, CanvasOp } from '../types';
+import type { ThoughtNode, ThoughtEdge, Highlight, Attachment, CanvasEvent, CanvasOp, DiffusionConfig } from '../types';
 
 export interface Snapshot {
   nodes: ThoughtNode[];
@@ -53,6 +53,8 @@ export interface NodeSlice {
   alignSelection: (nodeIds: string[]) => void;
   /** Set/clear a per-node LLM override (undefined = follow the global picker). */
   setNodeModel: (nodeId: string, model: string | undefined) => void;
+  /** Set per-node DiffusionGemma REG/sampling config (undefined = base). */
+  setNodeDiffusion: (nodeId: string, diffusion: DiffusionConfig | undefined) => void;
   /** Archive/unarchive nodes: dimmed on canvas, excluded from every context walk (undoable). */
   setArchived: (nodeIds: string[], archived: boolean) => void;
   /** Nodes whose answers predate upstream changes (derived, not persisted). */

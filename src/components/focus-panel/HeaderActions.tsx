@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, ClipboardCopy, Copy, Ellipsis, FileDown, GitFo
 import { useStore } from '../../store';
 import { contextChainMarkdown, downloadMarkdown, copyText } from '../../lib/export';
 import ModelPicker from '../ui/ModelPicker';
+import DiffusionSettings from '../ui/DiffusionSettings';
 import FanOutModal from '../FanOutModal';
 import { useT } from '../../i18n';
 
@@ -68,6 +69,7 @@ export default function HeaderActions({ nodeId, isLoading }: { nodeId: string; i
         {isArchived ? <ArchiveRestore size={16} strokeWidth={1.75} /> : <Archive size={16} strokeWidth={1.75} />}
       </button>
       <ModelPicker compact value={nodeModel} onChange={(m) => setNodeModel(nodeId, m)} />
+      <DiffusionSettings nodeId={nodeId} />
 
       <div ref={menuRef} className="relative">
         <button onClick={() => setMenuOpen((v) => !v)} title={t('panel.more')} className={`${iconBtn} ${menuOpen ? 'bg-line/50 text-ink' : ''}`}>

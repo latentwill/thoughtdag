@@ -243,6 +243,134 @@ function toSdkPrompt(messages, images) {
   return { system, messages: out };
 }
 
+// ─── Local DiffusionGemma REG sidecar ─────────────────────────
+// The MLX sidecar (http://127.0.0.1:8080/v1) is OpenAI-compatible but needs
+// non-standard top-level fields (`reg`, `diffusion`) plus its own sampling
+// controls. The AI SDK's createOpenAICompatible does NOT reliably forward
+// arbitrary extra keys, so the diffusion provider gets a raw-fetch lane here
+// (mirroring src/lib/direct-llm.ts) and stays loopback-only behind the proxy.
+const DIFFUSION_BASE_URL = (process.env.DIFFUSION_BASE_URL || 'http://127.0.0.1:8080/v1').replace(/\/$/, '');
+
+function isDiffusionModel(modelId, providers) {
+  const reg = providerEntries(providers || []);
+  const entry = reg[modelId];
+  if (!entry) return false;
+  const base = String(entry.baseURL ?? '').replace(/\/$/, '');
+  return base === DIFFUSION_BASE_URL;
+}
+
+// Map the frontend DiffusionConfig to the sidecar's request shape.
+function diffusionRequestOptions(diffusion) {
+  const d = diffusion ?? {};
+  const body = {
+    ...(d.seed !== undefined ? { seed: d.seed } : {}),
+    ...(d.temperature !== undefined ? { temperature: d.temperature } : {}),
+    diffusion: {
+      ...(d.numInferenceSteps !== undefined ? { num_inference_steps: d.numInferenceSteps } : {}),
+      ...(d.tMin !== undefined ? { t_min: d.tMin } : {}),
+      ...(d.tMax !== undefined ? { t_max: d.tMax } : {}),
+      ...(d.entropyBound !== undefined ? { entropy_bound: d.entropyBound } : {}),
+      ...(d.topP !== undefined ? { top_p: d.topP } : {}),
+      ...(d.topK !== undefined ? { top_k: d.topK } : {}),
+      ...(d.sampler !== undefined ? { sampler: d.sampler } : {}),
+    },
+  };
+  if (d.embedding) {
+    body.reg = {
+      embeddings: [{ embedding: d.embedding, strength: d.strength ?? 1.0 }],
+      strength_mode: d.strengthMode ?? 'state',
+    };
+  }
+  return body;
+}
+
+// Normalize our wire messages ({role, content}[] + images[]) into a flat
+// OpenAI messages array the sidecar accepts. Images are not supported by the
+// text-only diffusion model; companion text is already in the messages.
+function toDiffusionMessages(messages, images) {
+  const systemParts = [];
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'system') { systemParts.push(m.content); continue; }
+    out.push({ role: m.role, content: m.content });
+  }
+  if (systemParts.length > 0) out.unshift({ role: 'system', content: [baseDirective(), ...systemParts].join('\n\n') });
+  return out;
+}
+
+// Stream one diffusion generation, converting sidecar SSE frames into the
+// proxy's `{ text }` SSE contract consumed by the frontend.
+async function streamDiffusion(res, modelId, messages, images, diffusion) {
+  const upstream = await fetch(`${DIFFUSION_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modelId,
+      stream: true,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      messages: toDiffusionMessages(messages, images),
+      ...diffusionRequestOptions(diffusion),
+    }),
+  });
+  if (!upstream.ok) {
+    const err = await upstream.json().catch(() => null);
+    throw new Error(err?.error?.message || err?.detail || `HTTP ${upstream.status}`);
+  }
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let finishReason = 'unknown';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if (data === '[DONE]') continue;
+      let chunk;
+      try { chunk = JSON.parse(data); } catch { continue; }
+      if (chunk.error) {
+        const msg = typeof chunk.error === 'string' ? chunk.error : chunk.error.message;
+        throw new Error(msg || 'Upstream stream error');
+      }
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        text += delta;
+        res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
+      }
+      if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+    }
+  }
+  return { text, finishReason };
+}
+
+// Non-streaming diffusion call (background summaries).
+async function callDiffusion(modelId, messages, images, diffusion) {
+  const res = await fetch(`${DIFFUSION_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modelId,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      messages: toDiffusionMessages(messages, images),
+      ...diffusionRequestOptions(diffusion),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.error?.message || err?.detail || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return { text: data.choices?.[0]?.message?.content ?? '', usage: data.usage };
+}
+
+
+
 // ─── Web search tool (Zhipu Web Search API, ¥0.01/query) ───────
 // Registered as an AI SDK tool: the MODEL decides when to search.
 
@@ -680,6 +808,20 @@ function modelsPayload() {
 
 app.get('/api/models', (req, res) => res.json(modelsPayload()));
 
+// List REG embeddings from the local diffusion sidecar (loopback-only).
+app.get('/api/reg-embeddings', async (req, res) => {
+  try {
+    const upstream = await fetch(`${DIFFUSION_BASE_URL}/embeddings`);
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: `Diffusion sidecar returned HTTP ${upstream.status}` });
+      return;
+    }
+    res.json(await upstream.json());
+  } catch (err) {
+    res.status(502).json({ error: `Could not reach diffusion sidecar: ${err.message}` });
+  }
+});
+
 // Browser-supplied OpenRouter key: an alternative to .env for people who
 // try the app before touching a config file. The key lives in the BROWSER
 // (localStorage) and in this process's memory only — never written to disk.
@@ -754,7 +896,7 @@ function providerEntries(providers) {
       if (out[m.id]) continue;
       const shortId = m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id;
       out[m.id] = {
-        name: `${shortId} (${name})`, provider: name,
+        name: `${shortId} (${name})`, provider: name, baseURL,
         vision: m.vision ?? (openRouterCaps?.get(m.id)?.includes('image') ?? false),
         model: () => make(m.id), ...extra,
         ...(isOpenRouter(baseURL) ? { online: () => make(`${m.id}:online`) } : {}),
@@ -824,7 +966,17 @@ app.post('/api/runtime-key', async (req, res) => {
 
 // Non-streaming endpoint (background summaries)
 app.post('/api/claude', async (req, res) => {
-  const { messages, model: modelId, images, providers } = req.body;
+  const { messages, model: modelId, images, providers, diffusion } = req.body;
+  if (modelId && isDiffusionModel(modelId, providers)) {
+    try {
+      const { text, usage } = await callDiffusion(modelId, messages, images, diffusion);
+      res.json({ text, usage, model: modelId });
+    } catch (err) {
+      console.error('Diffusion generate error:', err);
+      res.status(500).json({ error: `[${modelId}] ${err.message}` });
+    }
+    return;
+  }
   const resolved = resolveModel(modelId || DEFAULT_MODEL, images && images.length > 0, providers);
   if (!resolved) { res.status(503).json({ error: 'No model configured. Add an API key first.' }); return; }
   const { entry, id: actualModelId } = resolved;
@@ -848,7 +1000,30 @@ app.post('/api/claude', async (req, res) => {
 // SSE streaming endpoint. The model decides on its own which tools to use
 // and when; `webSearch: false` / `scholarSearch: false` hide tool groups.
 app.post('/api/stream', async (req, res) => {
-  const { messages, model: modelId, images, webSearch, scholarSearch, mcpTools, searchEngine, providers, anysearchKey } = req.body;
+  const { messages, model: modelId, images, webSearch, scholarSearch, mcpTools, searchEngine, providers, anysearchKey, diffusion } = req.body;
+
+  // Local diffusion sidecar: raw-fetch lane (non-standard reg/diffusion fields).
+  if (modelId && isDiffusionModel(modelId, providers)) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    try {
+      const { text, finishReason } = await streamDiffusion(res, modelId, messages, images, diffusion);
+      if (text.length === 0) {
+        res.write(`data: ${JSON.stringify({ error: `Model produced no text (finish: ${finishReason}, model: ${modelId})` })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+    return;
+  }
+
   const resolved = resolveModel(modelId || DEFAULT_MODEL, images && images.length > 0, providers);
   if (!resolved) { res.status(503).json({ error: 'No model configured. Add an API key first.' }); return; }
   const { entry, id: actualModelId, reroutedFrom } = resolved;

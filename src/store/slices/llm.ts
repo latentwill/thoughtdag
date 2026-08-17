@@ -24,6 +24,7 @@ export const createLlmSlice: StateCreator<StoreState, [], [], LlmSlice> = (set, 
     // global picker sits on something else. No pin on the parent = keep
     // following the global pick (undefined), as before.
     const inheritedModel = parentId ? get().nodes.find((n) => n.id === parentId)?.data.model : undefined;
+    const inheritedDiffusion = parentId ? get().nodes.find((n) => n.id === parentId)?.data.diffusion : undefined;
     const newNode: ThoughtNode = {
       id,
       type: 'thought',
@@ -34,6 +35,7 @@ export const createLlmSlice: StateCreator<StoreState, [], [], LlmSlice> = (set, 
         createdAt: new Date().toISOString(),
         askedAt: new Date().toISOString(),
         model: inheritedModel,
+        diffusion: inheritedDiffusion,
         response: '',
         responses: [],
         responseIndex: -1,

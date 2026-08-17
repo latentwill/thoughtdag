@@ -284,7 +284,7 @@ export async function runNodeGeneration(
         scholar: selfData?.scholarSearch ?? useUiStore.getState().scholarSearchEnabled,
         mcp: useUiStore.getState().mcpEnabled,
       };
-    })(), pinnedModel);
+    })(), pinnedModel, selfData?.diffusion);
     flushStream();
     if (!isCurrent()) return; // superseded while finishing: drop everything
     activeAbortControllers.delete(nodeId);

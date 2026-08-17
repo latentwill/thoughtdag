@@ -399,6 +399,14 @@ export const createNodeSlice: StateCreator<StoreState, [], [], NodeSlice> = (set
     }));
   },
 
+  setNodeDiffusion: (nodeId: string, diffusion: import('../../types').DiffusionConfig | undefined) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, diffusion } } : n
+      ),
+    }));
+  },
+
   alignSelection: (nodeIds: string[]) => {
     if (nodeIds.length < 2) return;
     const selected = new Set(nodeIds);
