@@ -1016,9 +1016,11 @@ app.post('/api/claude', async (req, res) => {
 // and when; `webSearch: false` / `scholarSearch: false` hide tool groups.
 app.post('/api/stream', async (req, res) => {
   const { messages, model: modelId, images, webSearch, scholarSearch, mcpTools, searchEngine, providers, anysearchKey, diffusion } = req.body;
+  const isDiff = modelId && isDiffusionModel(modelId, providers);
+  console.log(`[stream] lane=${isDiff ? 'diffusion' : 'sdk'} model=${modelId ?? '(none)'} msgs=${(messages || []).length}`);
 
   // Local diffusion sidecar: raw-fetch lane (non-standard reg/diffusion fields).
-  if (modelId && isDiffusionModel(modelId, providers)) {
+  if (isDiff) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -1026,12 +1028,18 @@ app.post('/api/stream', async (req, res) => {
     });
     try {
       const { text, finishReason } = await streamDiffusion(res, modelId, messages, images, diffusion);
+      console.log(`[diffusion] done textLen=${text.length} finish=${finishReason}`);
       if (text.length === 0) {
         res.write(`data: ${JSON.stringify({ error: `Model produced no text (finish: ${finishReason}, model: ${modelId})` })}\n\n`);
+      } else if (finishReason === 'repetition') {
+        // The sidecar stopped the run early: the streamed prefix is kept,
+        // but the output degenerated — say so instead of pretending success.
+        res.write(`data: ${JSON.stringify({ error: 'Generation stopped early: repetition detected. Retry for a fresh sample.' })}\n\n`);
       }
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (err) {
+      console.error('[diffusion] stream error:', err.message);
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
