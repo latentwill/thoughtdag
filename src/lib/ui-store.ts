@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { DiffusionConfig } from '../types';
 
 // Transient UI state (toasts, confirm dialog) — deliberately separate from
 // the main store: no persistence, no undo history, and the imperative API
@@ -142,6 +143,9 @@ interface UiState {
   setReaderNodeId: (id: string | null, jump?: { page?: number; threadId?: string }) => void;
   setPanelOpen: (open: boolean) => void;
   setSelectedModel: (model: string | null) => void;
+  /** REG diffusion config applied to new ROOT nodes (landing pre-selection). */
+  defaultDiffusion: DiffusionConfig | undefined;
+  setDefaultDiffusion: (d: DiffusionConfig | undefined) => void;
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -289,6 +293,18 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (model) localStorage.setItem(MODEL_KEY, model);
     else localStorage.removeItem(MODEL_KEY);
     set({ selectedModel: model });
+  },
+  defaultDiffusion: (() => {
+    try {
+      const raw = localStorage.getItem('thoughtdag.defaultDiffusion');
+      return raw ? JSON.parse(raw) as DiffusionConfig : undefined;
+    } catch { /* fresh start */ }
+    return undefined;
+  })(),
+  setDefaultDiffusion: (d) => {
+    if (d) localStorage.setItem('thoughtdag.defaultDiffusion', JSON.stringify(d));
+    else localStorage.removeItem('thoughtdag.defaultDiffusion');
+    set({ defaultDiffusion: d });
   },
 }));
 

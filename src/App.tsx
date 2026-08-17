@@ -58,6 +58,7 @@ import GlobalTooltip from './components/ui/GlobalTooltip';
 import RoleManagerModal from './components/ui/RoleManagerModal';
 import MemoryManagerModal from './components/ui/MemoryManagerModal';
 import ApiKeyModal from './components/ui/ApiKeyModal';
+import { DiffusionPicker } from './components/ui/DiffusionSettings';
 import ResponseViewer from './components/ui/ResponseViewer';
 import ShareDialog from './components/ui/ShareDialog';
 import BackupDialog from './components/ui/BackupDialog';
@@ -794,6 +795,8 @@ function Canvas() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [diagPing, setDiagPing] = useState(0);
   const searching = useUiStore((s2) => s2.searchHitIds !== null);
+  const defaultDiffusion = useUiStore((s2) => s2.defaultDiffusion);
+  const setDefaultDiffusion = useUiStore((s2) => s2.setDefaultDiffusion);
   const moreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!moreOpen) return;
@@ -1154,6 +1157,7 @@ function Canvas() {
               )}
               <div className="flex items-center justify-end mt-2 gap-2">
                 <SearchToggles />
+                <DiffusionPicker value={defaultDiffusion} onChange={setDefaultDiffusion} />
                 <button
                   onClick={() => setShowRootRole(!showRootRole)}
                   title={t('landing.roleTrayTitle')}

@@ -4,13 +4,19 @@ import { fetchRegEmbeddings, type RegEmbedding } from '../../lib/api';
 import { useStore } from '../../store';
 import type { DiffusionConfig } from '../../types';
 
-// Per-node DiffusionGemma REG settings: embedding picker + strength + mode,
-// with a collapsible advanced area for sampling knobs. Shown next to the
-// model chip in the focus panel; writes via setNodeDiffusion.
+// DiffusionGemma REG settings: embedding picker + strength + mode, with a
+// collapsible advanced area for sampling knobs. Reusable over a plain
+// (value, onChange) contract so the same control works per-node (focus
+// panel, writes via setNodeDiffusion) and as the landing composer's
+// pre-selection (writes the store's defaultDiffusion for the next root node).
 
 export default function DiffusionSettings({ nodeId }: { nodeId: string }) {
   const setNodeDiffusion = useStore((s) => s.setNodeDiffusion);
   const nodeDiffusion = useStore((s) => s.nodes.find((n) => n.id === nodeId)?.data.diffusion);
+  return <DiffusionPicker value={nodeDiffusion} onChange={(d) => setNodeDiffusion(nodeId, d)} />;
+}
+
+export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; onChange: (d?: DiffusionConfig) => void }) {
   const [embeddings, setEmbeddings] = useState<RegEmbedding[]>([]);
   const [open, setOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -34,9 +40,7 @@ export default function DiffusionSettings({ nodeId }: { nodeId: string }) {
     return () => { alive = false; };
   }, [open]);
 
-  const d = nodeDiffusion ?? {};
-  const set = (patch: DiffusionConfig | undefined) => setNodeDiffusion(nodeId, patch);
-
+  const d = value ?? {};
   const setField = (key: keyof DiffusionConfig, value: unknown) => {
     const next: DiffusionConfig = { ...d };
     if (value === undefined || value === '' || value === null) {
@@ -44,7 +48,7 @@ export default function DiffusionSettings({ nodeId }: { nodeId: string }) {
     } else {
       (next as Record<string, unknown>)[key] = value;
     }
-    set(Object.keys(next).length > 0 ? next : undefined);
+    onChange(Object.keys(next).length > 0 ? next : undefined);
   };
 
   const inputCls = 'w-full text-xs text-ink bg-wash border border-line rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent/40';
