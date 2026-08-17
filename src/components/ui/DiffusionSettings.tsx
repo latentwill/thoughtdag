@@ -118,6 +118,10 @@ export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; 
           {advanced && (
             <div className="border-t border-line mt-1 pt-2 px-3 pb-2 grid grid-cols-2 gap-2">
               <label className="col-span-2">
+                <span className={labelCls}>Seed (empty = random)</span>
+                <input type="number" min="0" max="9223372036854775807" value={d.seed ?? ''} onChange={(e) => setField('seed', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
+              </label>
+              <label className="col-span-2">
                 <span className={labelCls}>Max tokens (empty = 1024)</span>
                 <input type="number" min="1" max="16384" value={d.maxTokens ?? ''} onChange={(e) => setField('maxTokens', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
               </label>
