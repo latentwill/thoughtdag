@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { AlignVerticalJustifyStart, Archive, ClipboardList, Copy, FileDown, GitBranch, Highlighter, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
+import { DiffusionPicker } from './ui/DiffusionSettings';
+import type { DiffusionConfig } from '../types';
 import { confirmDialog } from '../lib/ui-store';
 import { selectionMarkdown, downloadMarkdown } from '../lib/export';
 import { isImeComposing } from '../utils';
@@ -13,7 +15,7 @@ import { useT, t as ti, fmt } from '../i18n';
 type PendingAction = 'explore' | 'merge' | 'mergeDelete' | 'weave' | null;
 
 export default function SelectionToolbar() {
-  const { selectedNodeIds, nodes, batchDelete, batchMergeSummarize, weaveHighlights, exploreFrom, alignSelection, setArchived, duplicateSelection } = useStore();
+  const { selectedNodeIds, nodes, batchDelete, batchMergeSummarize, weaveHighlights, exploreFrom, alignSelection, setArchived, duplicateSelection, setNodeDiffusion } = useStore();
   const t = useT();
   const [pending, setPending] = useState<PendingAction>(null);
   const [input, setInput] = useState('');
@@ -41,6 +43,27 @@ export default function SelectionToolbar() {
 
   // Collect all highlights from selected nodes
   const allHighlights = selectedNodes.flatMap((n) => n?.data.highlights || []);
+
+  // Batch REG settings: the picker shows the fields every selected node
+  // agrees on (mixed fields stay unset); whatever is configured applies to
+  // ALL selected nodes, replacing their previous config wholesale.
+  const sharedDiffusion = (() => {
+    const cfgs = selectedNodes
+      .map((n) => n?.data.diffusion)
+      .filter((c): c is DiffusionConfig => !!c && Object.keys(c).length > 0);
+    if (cfgs.length === 0) return undefined;
+    const keys = [...new Set(cfgs.flatMap((c) => Object.keys(c)))];
+    const merged: Record<string, unknown> = {};
+    for (const k of keys) {
+      const key = k as keyof DiffusionConfig;
+      const first = JSON.stringify(cfgs[0][key]);
+      if (cfgs.every((c) => JSON.stringify(c[key]) === first)) merged[k] = cfgs[0][key];
+    }
+    return Object.keys(merged).length > 0 ? (merged as DiffusionConfig) : undefined;
+  })();
+  const applyDiffusion = (d: DiffusionConfig | undefined) => {
+    for (const id of selectedNodeIds) setNodeDiffusion(id, d);
+  };
 
   const run = () => {
     const text = input.trim();
@@ -81,6 +104,8 @@ export default function SelectionToolbar() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          <DiffusionPicker value={sharedDiffusion} onChange={applyDiffusion} />
+
           <button
             onClick={() => toggle('merge')}
             className={actionBtn('merge', 'bg-blue-600 text-white', 'bg-blue-50 hover:bg-blue-100 text-blue-600')}
