@@ -39,7 +39,7 @@ import { set as idbSet } from 'idb-keyval';
 import { instantiateParadigm } from './lib/paradigm';
 import { isContentKind, spawnContentNode, ingestFiles, fetchLinkIntoNode, clipboardTextToMarkdown } from './lib/content';
 import { generateId, isImeComposing } from './utils';
-import type { Attachment, ThoughtNode as ThoughtNodeType, ThoughtEdge } from './types';
+import type { Attachment, ThoughtNode as ThoughtNodeType, ThoughtEdge, DiffusionConfig } from './types';
 import { processFile, FILE_INPUT_ACCEPT } from './lib/attachments';
 import { walkUpAncestors } from './lib/graph';
 import { buildContext } from './store/context-builder';
@@ -326,8 +326,10 @@ function Canvas() {
   }, []);
 
   // Ask node: an ordinary Q&A node dropped EMPTY — wire material in, then
-  // type the question; it answers from whatever the edges carry.
-  const spawnAskNode = useCallback((pos: { x: number; y: number }): string => {
+  // type the question; it answers from whatever the edges carry. The
+  // diffusion config rides along: wired drops inherit the source node's
+  // settings, palette/double-click drops inherit the canvas default.
+  const spawnAskNode = useCallback((pos: { x: number; y: number }, diffusion?: DiffusionConfig): string => {
     const st = useStore.getState();
     const id = generateId();
     st.setNodes([...st.nodes, {
@@ -338,6 +340,7 @@ function Canvas() {
         tokenCount: 0, highlights: [], highlightMode: 'tag',
         attachments: [], excludedAttachmentIds: [], includedAttachmentIds: [],
         roleMode: 'inherit', isRoot: false, isBranch: false,
+        diffusion,
         webSearch: useUiStore.getState().webSearchEnabled,
         scholarSearch: useUiStore.getState().scholarSearchEnabled,
       },
@@ -610,7 +613,7 @@ function Canvas() {
     const pos = flowPosAt({ x: clientX, y: clientY });
     const st = useStore.getState();
     if (st.nodes.find((n) => n.id === parentId)?.data.stepKind === 'frame') return;
-    const newId = spawnAskNode(pos);
+    const newId = spawnAskNode(pos, st.nodes.find((n) => n.id === parentId)?.data.diffusion);
     st.setEdges([...useStore.getState().edges, {
       id: `edge-${parentId}-${newId}`,
       source: parentId,
@@ -896,7 +899,7 @@ function Canvas() {
           // Double-click on empty canvas → drop an ask node right there
           // (same gesture family as double-click-on-node = open panel)
           if ((e.target as HTMLElement).classList.contains('react-flow__pane') && !isParadigm) {
-            spawnAskNode(flowPosAt({ x: e.clientX, y: e.clientY }));
+            spawnAskNode(flowPosAt({ x: e.clientX, y: e.clientY }), useUiStore.getState().defaultDiffusion);
           }
         }}
         onDragOver={(e) => {
@@ -926,7 +929,7 @@ function Canvas() {
           const paletteKind = e.dataTransfer.getData('application/thoughtdag-content');
           if (paletteKind === 'ask') {
             e.preventDefault();
-            spawnAskNode(pos);
+            spawnAskNode(pos, useUiStore.getState().defaultDiffusion);
             return;
           }
           if (paletteKind === 'frame') {
@@ -1288,7 +1291,7 @@ function Canvas() {
         <div className="absolute top-[38%] -translate-y-1/2 left-4 z-10 flex flex-col gap-1.5 bg-card/90 backdrop-blur border border-line rounded-xl p-1.5 shadow-sm">
           {!isParadigm && (
             <button
-              onClick={() => spawnAskNode(flowPosAt(null))}
+              onClick={() => spawnAskNode(flowPosAt(null), useUiStore.getState().defaultDiffusion)}
               draggable
               onDragStart={(e) => { e.dataTransfer.setData('application/thoughtdag-content', 'ask'); e.dataTransfer.effectAllowed = 'copy'; }}
               title={t('palette.askTitle')}
