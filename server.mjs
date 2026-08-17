@@ -260,18 +260,21 @@ function isDiffusionModel(modelId, providers) {
 }
 
 // Map the frontend DiffusionConfig to the sidecar's request shape.
+// Integer knobs are sanitized here too: stale configs (e.g. top_k stored
+// as a float before the UI guard) would otherwise 422 the sidecar.
+const intOrUndef = (v) => (Number.isInteger(v) ? v : undefined);
 function diffusionRequestOptions(diffusion) {
   const d = diffusion ?? {};
   const body = {
-    ...(d.seed !== undefined ? { seed: d.seed } : {}),
-    ...(d.temperature !== undefined ? { temperature: d.temperature } : {}),
+    ...(intOrUndef(d.seed) !== undefined ? { seed: d.seed } : {}),
+    ...(typeof d.temperature === 'number' ? { temperature: d.temperature } : {}),
     diffusion: {
-      ...(d.numInferenceSteps !== undefined ? { num_inference_steps: d.numInferenceSteps } : {}),
-      ...(d.tMin !== undefined ? { t_min: d.tMin } : {}),
-      ...(d.tMax !== undefined ? { t_max: d.tMax } : {}),
-      ...(d.entropyBound !== undefined ? { entropy_bound: d.entropyBound } : {}),
-      ...(d.topP !== undefined ? { top_p: d.topP } : {}),
-      ...(d.topK !== undefined ? { top_k: d.topK } : {}),
+      ...(intOrUndef(d.numInferenceSteps) !== undefined ? { num_inference_steps: d.numInferenceSteps } : {}),
+      ...(typeof d.tMin === 'number' ? { t_min: d.tMin } : {}),
+      ...(typeof d.tMax === 'number' ? { t_max: d.tMax } : {}),
+      ...(typeof d.entropyBound === 'number' ? { entropy_bound: d.entropyBound } : {}),
+      ...(typeof d.topP === 'number' ? { top_p: d.topP } : {}),
+      ...(intOrUndef(d.topK) !== undefined ? { top_k: d.topK } : {}),
       ...(d.sampler !== undefined ? { sampler: d.sampler } : {}),
     },
   };
@@ -304,7 +307,7 @@ async function streamDiffusion(res, modelId, messages, images, diffusion) {
   const requestBody = {
     model: modelId,
     stream: true,
-    max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
+    max_tokens: intOrUndef(diffusion?.maxTokens) ?? MAX_OUTPUT_TOKENS ?? 1024,
     messages: toDiffusionMessages(messages, images),
     ...diffusionRequestOptions(diffusion),
   };
@@ -359,7 +362,7 @@ async function streamDiffusion(res, modelId, messages, images, diffusion) {
 async function callDiffusion(modelId, messages, images, diffusion) {
   const requestBody = {
     model: modelId,
-    max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
+    max_tokens: intOrUndef(diffusion?.maxTokens) ?? MAX_OUTPUT_TOKENS ?? 1024,
     messages: toDiffusionMessages(messages, images),
     ...diffusionRequestOptions(diffusion),
   };
