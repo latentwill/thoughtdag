@@ -307,7 +307,7 @@ async function streamDiffusion(res, modelId, messages, images, diffusion) {
     body: JSON.stringify({
       model: modelId,
       stream: true,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
       messages: toDiffusionMessages(messages, images),
       ...diffusionRequestOptions(diffusion),
     }),
@@ -356,7 +356,7 @@ async function callDiffusion(modelId, messages, images, diffusion) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: modelId,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
       messages: toDiffusionMessages(messages, images),
       ...diffusionRequestOptions(diffusion),
     }),

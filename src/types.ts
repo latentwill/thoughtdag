@@ -44,6 +44,7 @@ export interface DiffusionConfig {
   strengthMode?: 'state' | 'bias';
   seed?: number;
   numInferenceSteps?: number;
+  maxTokens?: number;
   temperature?: number;
   topP?: number;
   topK?: number;
