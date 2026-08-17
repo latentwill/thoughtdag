@@ -301,20 +301,26 @@ function toDiffusionMessages(messages, images) {
 // Stream one diffusion generation, converting sidecar SSE frames into the
 // proxy's `{ text }` SSE contract consumed by the frontend.
 async function streamDiffusion(res, modelId, messages, images, diffusion) {
+  const requestBody = {
+    model: modelId,
+    stream: true,
+    max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
+    messages: toDiffusionMessages(messages, images),
+    ...diffusionRequestOptions(diffusion),
+  };
+  console.log('[diffusion] stream', JSON.stringify({ ...requestBody, messages: `[${requestBody.messages.length} msgs]` }));
   const upstream = await fetch(`${DIFFUSION_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: modelId,
-      stream: true,
-      max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
-      messages: toDiffusionMessages(messages, images),
-      ...diffusionRequestOptions(diffusion),
-    }),
+    body: JSON.stringify(requestBody),
   });
   if (!upstream.ok) {
     const err = await upstream.json().catch(() => null);
-    throw new Error(err?.error?.message || err?.detail || `HTTP ${upstream.status}`);
+    const detail = err?.detail;
+    const message = typeof detail === 'string' ? detail
+      : Array.isArray(detail) ? detail.map((d) => d?.msg ?? JSON.stringify(d)).join('; ')
+      : null;
+    throw new Error(err?.error?.message || message || `HTTP ${upstream.status}`);
   }
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
@@ -351,19 +357,25 @@ async function streamDiffusion(res, modelId, messages, images, diffusion) {
 
 // Non-streaming diffusion call (background summaries).
 async function callDiffusion(modelId, messages, images, diffusion) {
+  const requestBody = {
+    model: modelId,
+    max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
+    messages: toDiffusionMessages(messages, images),
+    ...diffusionRequestOptions(diffusion),
+  };
+  console.log('[diffusion] call', JSON.stringify({ ...requestBody, messages: `[${requestBody.messages.length} msgs]` }));
   const res = await fetch(`${DIFFUSION_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: modelId,
-      max_tokens: diffusion?.maxTokens ?? MAX_OUTPUT_TOKENS ?? 1024,
-      messages: toDiffusionMessages(messages, images),
-      ...diffusionRequestOptions(diffusion),
-    }),
+    body: JSON.stringify(requestBody),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => null);
-    throw new Error(err?.error?.message || err?.detail || `HTTP ${res.status}`);
+    const detail = err?.detail;
+    const message = typeof detail === 'string' ? detail
+      : Array.isArray(detail) ? detail.map((d) => d?.msg ?? JSON.stringify(d)).join('; ')
+      : null;
+    throw new Error(err?.error?.message || message || `HTTP ${res.status}`);
   }
   const data = await res.json();
   return { text: data.choices?.[0]?.message?.content ?? '', usage: data.usage };

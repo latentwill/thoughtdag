@@ -119,15 +119,15 @@ export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; 
             <div className="border-t border-line mt-1 pt-2 px-3 pb-2 grid grid-cols-2 gap-2">
               <label className="col-span-2">
                 <span className={labelCls}>Seed (empty = random)</span>
-                <input type="number" min="0" max="9223372036854775807" value={d.seed ?? ''} onChange={(e) => setField('seed', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
+                <input type="number" step="1" min="0" max="9223372036854775807" value={d.seed ?? ''} onChange={(e) => { if (e.target.value === '') { setField('seed', undefined); return; } const n = Number(e.target.value); if (Number.isInteger(n)) setField('seed', n); }} className={inputCls} />
               </label>
               <label className="col-span-2">
                 <span className={labelCls}>Max tokens (empty = 1024)</span>
-                <input type="number" min="1" max="16384" value={d.maxTokens ?? ''} onChange={(e) => setField('maxTokens', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
+                <input type="number" step="1" min="1" max="16384" value={d.maxTokens ?? ''} onChange={(e) => { if (e.target.value === '') { setField('maxTokens', undefined); return; } const n = Number(e.target.value); if (Number.isInteger(n)) setField('maxTokens', n); }} className={inputCls} />
               </label>
               <label className="col-span-2">
                 <span className={labelCls}>Steps</span>
-                <input type="number" min="1" max="256" value={d.numInferenceSteps ?? 24} onChange={(e) => setField('numInferenceSteps', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
+                <input type="number" step="1" min="1" max="256" value={d.numInferenceSteps ?? 24} onChange={(e) => { if (e.target.value === '') { setField('numInferenceSteps', undefined); return; } const n = Number(e.target.value); if (Number.isInteger(n)) setField('numInferenceSteps', n); }} className={inputCls} />
               </label>
               <label>
                 <span className={labelCls}>Temperature</span>
@@ -139,7 +139,7 @@ export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; 
               </label>
               <label>
                 <span className={labelCls}>Top K</span>
-                <input type="number" min="0" max="262144" value={d.topK ?? 0} onChange={(e) => setField('topK', e.target.value === '' ? undefined : Number(e.target.value))} className={inputCls} />
+                <input type="number" step="1" min="0" max="262144" value={d.topK ?? 0} onChange={(e) => { if (e.target.value === '') { setField('topK', undefined); return; } const n = Number(e.target.value); if (Number.isInteger(n)) setField('topK', n); }} className={inputCls} />
               </label>
               <label>
                 <span className={labelCls}>T Min</span>
