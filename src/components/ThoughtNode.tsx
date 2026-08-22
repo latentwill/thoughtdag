@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Handle, Position, useReactFlow, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Archive, BookOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, GitBranch, Globe, Hourglass, Minimize2, Paperclip, RefreshCw, Send, Split, Square, Star, Trash2, UserRound, X, Pencil } from 'lucide-react';
+import { AlertTriangle, Archive, BookOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Dices, Eye, GitBranch, Globe, Hourglass, ImagePlus, LoaderCircle, Minimize2, Paperclip, RefreshCw, Send, Split, Square, Star, Trash2, UserRound, X, Pencil } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import type { ThoughtNode as ThoughtNodeType } from '../types';
 import { useStore } from '../store';
@@ -11,6 +11,7 @@ import { copyText } from '../lib/export';
 import { isRunLocked } from '../lib/paradigm';
 import { collectExploreMarksKey, type ExploreMark } from '../lib/explore-marks';
 import { useUiStore, toast } from '../lib/ui-store';
+import { characterAvatarFor } from '../lib/role-templates';
 import SearchToggles from './ui/SearchToggles';
 import { Markdown, HighlightedMarkdown } from './Markdown';
 import FanOutModal from './FanOutModal';
@@ -31,6 +32,8 @@ export default function ThoughtNode({ id, data }: NodeProps<ThoughtNodeType>) {
   const editQuestion = useStore((s) => s.editQuestion);
   const submitHumanTurn = useStore((s) => s.submitHumanTurn);
   const stopGeneration = useStore((s) => s.stopGeneration);
+  const generateNodeImage = useStore((s) => s.generateNodeImage);
+  const generateVariants = useStore((s) => s.generateVariants);
   const setEditingResponse = useStore((s) => s.setEditingResponse);
   const editResponse = useStore((s) => s.editResponse);
   const addHighlight = useStore((s) => s.addHighlight);
@@ -515,8 +518,15 @@ export default function ThoughtNode({ id, data }: NodeProps<ThoughtNodeType>) {
               <Eye size={12} strokeWidth={1.75} /> {t('evaluator.badge')}
             </span>
           ) : data.appliedRole && (
-            <span className="text-2xs bg-accent/10 text-accent px-1.5 py-0.5 rounded-md truncate max-w-[120px]" title={data.appliedRole}>
-              {data.appliedRole.slice(0, 20)}{data.appliedRole.length > 20 ? '…' : ''}
+            <span className="text-2xs bg-accent/10 text-accent px-1.5 py-0.5 rounded-md truncate max-w-[140px] flex items-center gap-1" title={data.appliedRole}>
+              {(() => {
+                const lib = useUiStore.getState().roleLib;
+                const avatar = characterAvatarFor(data.appliedRole, lib);
+                return avatar
+                  ? <img src={avatar} alt="" className="w-3.5 h-3.5 rounded-full object-cover shrink-0" />
+                  : null;
+              })()}
+              <span className="truncate">{data.appliedRole.slice(0, 20)}{data.appliedRole.length > 20 ? '…' : ''}</span>
             </span>
           )}
           {data.model && (
@@ -772,6 +782,33 @@ export default function ThoughtNode({ id, data }: NodeProps<ThoughtNodeType>) {
                   <Pencil size={13} strokeWidth={1.75} />
                 </button>
               )}
+              {!isViewerMode && !data.isEvaluator && data.diffusion?.embedding && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); void generateVariants(id, 'baseline-embed'); }}
+                  className="rounded-full w-6 h-6 flex items-center justify-center hover:text-accent hover:bg-wash transition-colors"
+                  title={t('actions.variantsBaseline')}
+                >
+                  <GitBranch size={13} strokeWidth={1.75} />
+                </button>
+              )}
+              {!isViewerMode && data.diffusion && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); void generateVariants(id, 'seeds', { count: 3 }); }}
+                  className="rounded-full w-6 h-6 flex items-center justify-center hover:text-accent hover:bg-wash transition-colors"
+                  title={t('actions.variantsSeeds')}
+                >
+                  <Dices size={13} strokeWidth={1.75} />
+                </button>
+              )}
+              {!isViewerMode && !data.isEvaluator && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); void generateNodeImage(id); }}
+                  className="rounded-full w-6 h-6 flex items-center justify-center hover:text-accent hover:bg-wash transition-colors"
+                  title={t('actions.genImage')}
+                >
+                  {data.generatingImage ? <LoaderCircle size={13} strokeWidth={1.75} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={1.75} />}
+                </button>
+              )}
               {(data.generatedBy?.[data.responseIndex]) && (
                 <span
                   className="text-2xs text-ink-faint font-mono ml-1 truncate max-w-[150px]"
@@ -796,6 +833,24 @@ export default function ThoughtNode({ id, data }: NodeProps<ThoughtNodeType>) {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Generated image: shown under the answer; regenerate via the button */}
+          {(data.generatedImage || data.generatingImage) && (
+            <div className="mt-2">
+              {data.generatingImage ? (
+                <div className="h-40 rounded-lg bg-wash flex items-center justify-center text-ink-faint">
+                  <LoaderCircle size={18} strokeWidth={1.75} className="animate-spin" />
+                </div>
+              ) : data.generatedImage ? (
+                <img
+                  src={data.generatedImage}
+                  alt=""
+                  className="rounded-lg max-h-72 w-auto border border-line cursor-zoom-in nopan"
+                  onClick={(e) => { e.stopPropagation(); window.open(data.generatedImage, '_blank'); }}
+                />
+              ) : null}
             </div>
           )}
 

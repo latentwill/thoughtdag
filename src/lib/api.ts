@@ -282,6 +282,25 @@ export async function llmCallStream(
   }
 }
 
+
+// Generate an image for a node prompt through the proxy's image lane.
+// Returns data URLs; throws with a readable message when no endpoint is set.
+export async function generateImage(prompt: string, size = '1024x1024'): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/image-gen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, size, n: 1 }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(errorText(err, err.error ?? `HTTP ${res.status}`));
+  }
+  const data = await res.json();
+  const first = (data.images ?? [])[0];
+  if (!first) throw new Error('Image endpoint returned no images');
+  return first;
+}
+
 export interface RegEmbedding {
   id: string;
   object: string;

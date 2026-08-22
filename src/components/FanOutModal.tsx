@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Eye, Split, X } from 'lucide-react';
+import { Eye, MessagesSquare, Split, X } from 'lucide-react';
 import { useStore } from '../store';
 import { effectiveRoles } from '../lib/role-templates';
 import { useUiStore } from '../lib/ui-store';
@@ -27,9 +27,11 @@ export default function FanOutModal({
   onClose: () => void;
 }) {
   const fanOut = useStore((s) => s.fanOut);
+  const roleplay = useStore((s) => s.roleplay);
   const t = useT();
   const lang = useI18n((s) => s.lang);
-  const [mode, setMode] = useState<'once' | 'follow'>('once');
+  const [mode, setMode] = useState<'once' | 'follow' | 'talk'>('once');
+  const [talkRounds, setTalkRounds] = useState(3);
   const [rounds, setRounds] = useState(1);
   const [question, setQuestion] = useState(initialQuestion);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -37,10 +39,11 @@ export default function FanOutModal({
     (initialRoles ?? []).map((r) => `${r.name}: ${r.prompt}`).join('\n')
   );
 
-  const switchMode = (m: 'once' | 'follow') => {
+  const switchMode = (m: 'once' | 'follow' | 'talk') => {
     setMode(m);
-    // Each mode has its natural task: the shared question vs a standing critique
-    setQuestion(m === 'follow' ? t('fanout.critiqueInstruction') : initialQuestion);
+    // Each mode has its natural task: the shared question, a standing critique,
+    // or the scene that opens the conversation.
+    setQuestion(m === 'follow' ? t('fanout.critiqueInstruction') : m === 'talk' ? t('fanout.talkScenarioPlaceholder') : initialQuestion);
   };
 
   const customRoles = customText
@@ -65,7 +68,11 @@ export default function FanOutModal({
 
   const run = () => {
     if (!question.trim() || roles.length === 0) return;
-    void fanOut(parentId, question.trim(), roles, { follow: mode === 'follow', rounds });
+    if (mode === 'talk' && roleplay) {
+      void roleplay(parentId, question.trim(), roles, { rounds: talkRounds });
+    } else {
+      void fanOut(parentId, question.trim(), roles, { follow: mode === 'follow', rounds });
+    }
     onClose();
   };
 
@@ -91,6 +98,7 @@ export default function FanOutModal({
               {([
                 { m: 'once' as const, icon: <Split size={14} strokeWidth={1.75} />, label: t('fanout.modeOnce') },
                 { m: 'follow' as const, icon: <Eye size={14} strokeWidth={1.75} />, label: t('fanout.modeFollow') },
+                { m: 'talk' as const, icon: <MessagesSquare size={14} strokeWidth={1.75} />, label: t('fanout.modeTalk') },
               ]).map(({ m, icon, label }) => (
                 <button
                   key={m}
@@ -106,8 +114,25 @@ export default function FanOutModal({
               ))}
             </div>
             <p className="text-2xs text-ink-faint mt-1.5 leading-relaxed">
-              {mode === 'once' ? t('fanout.modeOnceHint') : t('fanout.modeFollowHint')}
+              {mode === 'once' ? t('fanout.modeOnceHint') : mode === 'talk' ? t('fanout.modeTalkHint') : t('fanout.modeFollowHint')}
             </p>
+            {mode === 'talk' && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-2xs text-ink-muted">{t('fanout.talkRounds')}</span>
+                {[2, 3, 4, 6].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setTalkRounds(r)}
+                    className={`text-2xs w-7 h-6 rounded-md transition-colors ${
+                      talkRounds === r ? 'bg-warm/15 text-warm font-medium ring-1 ring-warm/30' : 'bg-wash text-ink-muted hover:bg-line'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+                <span className="text-2xs text-ink-faint">{t('fanout.talkRoundsHint')}</span>
+              </div>
+            )}
             {mode === 'follow' && (
               <div className="mt-2 flex items-center gap-2">
                 <span className="text-2xs text-ink-muted">{t('fanout.rounds')}</span>
@@ -182,7 +207,7 @@ export default function FanOutModal({
               mode === 'follow' ? 'bg-watch/90 hover:bg-watch' : 'bg-warm hover:bg-warm/90'
             }`}
           >
-            {fmt(t(mode === 'follow' ? 'fanout.confirmFollow' : 'fanout.confirm'), { n: roles.length })}
+            {fmt(t(mode === 'follow' ? 'fanout.confirmFollow' : mode === 'talk' ? 'fanout.confirmTalk' : 'fanout.confirm'), { n: roles.length })}
           </button>
         </div>
       </div>

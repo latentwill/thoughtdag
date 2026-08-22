@@ -110,19 +110,25 @@ export default function FocusPanel({ onFocusNode }: { onFocusNode?: (id: string)
         {/* a visible grip: the handle exists whether or not you hover it */}
         <div className={`w-[3px] h-9 rounded-full transition-colors ${resizing ? 'bg-accent' : 'bg-line-strong'}`} />
       </div>
-      {/* Header: summary kicker (role · tokens · materials) + action strip */}
-      <div className="flex items-start gap-2 pl-4 pr-3 py-1.5 border-b border-line/70 shrink-0">
-        <RoleLine nodeId={selectedNodeId!} data={data} inheritedRole={inheritedRole} />
-        <div className="flex items-center gap-1 shrink-0">
-          {!isViewerMode && <HeaderActions nodeId={selectedNodeId!} isLoading={data.isLoading} />}
+      {/* Header: kicker row (role · tokens · materials), then a full-width
+          action row below. Stacking stops the archive/regenerate icons from
+          being obscured when the model + diffusion chips fill the width. */}
+      <div className="flex flex-col gap-1 pl-4 pr-3 py-1.5 border-b border-line/70 shrink-0">
+        <div className="flex items-start gap-2">
+          <RoleLine nodeId={selectedNodeId!} data={data} inheritedRole={inheritedRole} />
           <button
             onClick={() => { useUiStore.getState().setPanelOpen(false); setSelectedNodeId(null); }}
             title={t('panel.close')}
-            className="text-ink-faint hover:text-ink transition-colors shrink-0 ml-1 h-8 flex items-center"
+            className="text-ink-faint hover:text-ink transition-colors shrink-0 h-8 flex items-center"
           >
             <X size={16} strokeWidth={1.75} />
           </button>
         </div>
+        {!isViewerMode && (
+        <div className="flex items-center gap-1 flex-wrap min-w-0 -ml-1">
+            <HeaderActions nodeId={selectedNodeId!} isLoading={data.isLoading} />
+        </div>
+        )}
       </div>
 
       {/* Scrollable content: one card per section */}

@@ -61,17 +61,59 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
   },
 ];
 
-// ── User-editable role library ─────────────────────────────────────
-// The built-ins above stay bilingual; the user layer can hide them,
-// override them (hide + custom copy) and add new single-language roles.
-// This edits the OPTION LIST only — roles already applied to nodes are
-// plain text on those nodes and never change retroactively.
+// ── Characters (SillyTavern-style Character.json cards) ───────────
+// A character is a named persona with an optional avatar and a system prompt
+// assembled from the card's fields. Importing a card file REPLACES the whole
+// character list or APPENDS to it — user picks, never a silent merge.
+// Avatars ride along as data URLs so nodes can show who is speaking.
+export interface CharacterCard {
+  id: string;
+  name: string;
+  prompt: string;
+  avatar?: string; // data URL
+  description?: string;
+  firstMessage?: string;
+}
+
 export interface CustomRole { id: string; name: string; prompt: string }
-export interface RoleLib { custom: CustomRole[]; hidden: string[] }
-export interface EffectiveRole { id: string; name: string; prompt: string; builtin: boolean }
+export interface RoleLib {
+  custom: CustomRole[];
+  hidden: string[];
+  characters?: CharacterCard[];
+}
+export interface EffectiveRole {
+  id: string; name: string; prompt: string; builtin: boolean;
+  character?: boolean;
+  avatar?: string;
+}
 
-export const EMPTY_ROLE_LIB: RoleLib = { custom: [], hidden: [] };
+export const EMPTY_ROLE_LIB: RoleLib = { custom: [], hidden: [], characters: [] };
 
+/** Normalize the common Character.json shapes into one of our cards. */
+export function characterFromCard(raw: Record<string, unknown>, id: string): CharacterCard | null {
+  const data = (raw.data ?? raw) as Record<string, unknown>;
+  const name = String(data.name ?? raw.name ?? '').trim();
+  if (!name) return null;
+  const description = String(data.description ?? raw.description ?? '').trim();
+  const personality = String(data.personality ?? raw.personality ?? '').trim();
+  const scenario = String(data.scenario ?? raw.scenario ?? '').trim();
+  const firstMes = String((data.first_mes as string) ?? (raw.first_mes as string) ?? '').trim();
+  const system = String(data.system_prompt ?? raw.system_prompt ?? '').trim();
+  const parts = [
+    `You are "${name}", staying fully in character.`,
+    system || undefined,
+    description ? `Character: ${description}` : undefined,
+    personality ? `Personality: ${personality}` : undefined,
+    scenario ? `Scenario: ${scenario}` : undefined,
+    firstMes ? `Your greeting message (stay consistent with it): ${firstMes}` : undefined,
+    'Never break character and never mention being an AI.',
+  ].filter(Boolean);
+  const avatarRaw = (raw.avatar ?? data.avatar) as unknown;
+  const avatar = typeof avatarRaw === 'string' && avatarRaw.startsWith('data:') ? avatarRaw : undefined;
+  return { id, name, prompt: parts.join('\n\n'), avatar, description, firstMessage: firstMes || undefined };
+}
+
+/** Build the effective role list: built-ins, custom roles, then characters. */
 export function effectiveRoles(lang: string, lib?: RoleLib | null): EffectiveRole[] {
   const hidden = new Set(lib?.hidden ?? []);
   const builtins = ROLE_TEMPLATES.filter((t) => !hidden.has(t.id)).map((t) => ({
@@ -80,5 +122,20 @@ export function effectiveRoles(lang: string, lib?: RoleLib | null): EffectiveRol
     prompt: rolePromptFor(t, lang),
     builtin: true,
   }));
-  return [...builtins, ...(lib?.custom ?? []).map((c) => ({ ...c, builtin: false }))];
+  const customs = (lib?.custom ?? []).map((c) => ({ ...c, builtin: false }));
+  const chars = (lib?.characters ?? []).map((c) => ({
+    id: c.id, name: c.name, prompt: c.prompt, builtin: false,
+    character: true as const, avatar: c.avatar,
+  }));
+  return [...builtins, ...customs, ...chars];
+}
+
+/** Find the character whose prompt matches an applied role (prefix match:
+    the node may have appended instructions after the persona block). */
+export function characterAvatarFor(appliedRole: string | undefined, lib?: RoleLib | null): string | undefined {
+  if (!appliedRole) return undefined;
+  for (const c of lib?.characters ?? []) {
+    if (appliedRole.startsWith(c.prompt.slice(0, Math.min(60, c.prompt.length)))) return c.avatar;
+  }
+  return undefined;
 }

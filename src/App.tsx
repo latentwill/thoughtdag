@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   SelectionMode,
   type OnNodesChange,
   type OnEdgesChange,
@@ -992,10 +991,15 @@ function Canvas() {
         nodeDragThreshold={5}
         connectionRadius={40}
         selectionMode={SelectionMode.Partial}
-        selectionOnDrag={!isViewerMode}
+        selectionOnDrag={false}
         nodesDraggable={!isViewerMode}
         nodesConnectable={!isViewerMode}
-        panOnDrag={isViewerMode ? true : [1, 2]}
+        // Click-to-drag panning: left button drags the canvas (the minimap is
+        // gone — it got obscured whenever the node bar was up). Multi-select
+        // stays available through the toolbar and shift-click.
+        panOnDrag={true}
+        panOnScroll={false}
+        selectionKeyCode="Shift" 
         zoomOnDoubleClick={false}
         connectionLineStyle={{ stroke: COLORS.accent, strokeDasharray: '8 4', strokeWidth: 2 }}
         onSelectionChange={onSelectionChange}
@@ -1005,24 +1009,7 @@ function Canvas() {
         <ZoomTierTag />
         <TimelineBar />
         <Controls position="bottom-left" />
-        {nodes.length > 0 && <MiniMap
-          nodeColor={(node) => {
-            const data = node.data as Record<string, unknown>;
-            // information density over decoration: type is color, archived
-            // fades to paper, ordinary turns stay a readable mid-gray
-            if (data.archived) return '#EFEDE9';
-            const sk = data.stepKind as string | undefined;
-            if (sk === 'note') return '#D97706';
-            if (sk === 'file' || sk === 'link') return '#64748B';
-            if (Array.isArray(data.condensedFrom) && data.condensedFrom.length) return '#8B7CF0';
-            return data.isRoot ? COLORS.accent : data.isBranch ? COLORS.warm : '#B9B3AB';
-          }}
-          maskColor="rgba(250,249,247,0.7)"
-          style={{ background: COLORS.card, width: 200, height: 140 }}
-          pannable
-          zoomable
-          position="bottom-right"
-        />}
+        {/* MiniMap removed: click-to-drag panning replaces it (it was obscured by the node bar) */}
       </ReactFlow>
 
       {/* Initial input */}

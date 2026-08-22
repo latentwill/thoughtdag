@@ -407,6 +407,35 @@ export const createNodeSlice: StateCreator<StoreState, [], [], NodeSlice> = (set
     }));
   },
 
+  generateNodeImage: async (nodeId: string) => {
+    const node = get().nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const prompt = node.data.response?.trim() || node.data.question.trim();
+    if (!prompt) return;
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, generatingImage: true } } : n
+      ),
+    }));
+    try {
+      const { generateImage } = await import('../../lib/api');
+      const image = await generateImage(prompt.slice(0, 1000));
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, generatedImage: image, generatingImage: undefined } } : n
+        ),
+      }));
+    } catch (err) {
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, generatingImage: undefined } } : n
+        ),
+      }));
+      const { toast } = await import('../../lib/ui-store');
+      toast('info', err instanceof Error ? err.message : String(err), 7000);
+    }
+  },
+
   alignSelection: (nodeIds: string[]) => {
     if (nodeIds.length < 2) return;
     const selected = new Set(nodeIds);

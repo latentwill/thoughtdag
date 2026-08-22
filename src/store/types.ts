@@ -55,6 +55,10 @@ export interface NodeSlice {
   setNodeModel: (nodeId: string, model: string | undefined) => void;
   /** Set per-node DiffusionGemma REG/sampling config (undefined = base). */
   setNodeDiffusion: (nodeId: string, diffusion: DiffusionConfig | undefined) => void;
+  generateNodeImage: (nodeId: string) => Promise<void>;
+  /** Fan N variant responses onto ONE node as versions (append-only):
+      seeds = same config, different seed; baseline-embed = base run +
+      embedding run; loom = cartesian product of embeddings × strengths. */
   /** Archive/unarchive nodes: dimmed on canvas, excluded from every context walk (undoable). */
   setArchived: (nodeIds: string[], archived: boolean) => void;
   /** Nodes whose answers predate upstream changes (derived, not persisted). */
@@ -88,6 +92,10 @@ export interface LlmSlice {
   exploreFrom: (nodeIds: string[], question: string) => Promise<void>;
   /** Fan out N perspectives: once = blind candidate branches; follow = reviewers that auto-rerun with the thread. */
   fanOut: (parentId: string, question: string, roles: { name: string; prompt: string }[], opts?: { follow?: boolean; rounds?: number }) => Promise<void>;
+  /** Multi-character roleplay: characters take turns responding to each
+      other as a chain of child nodes (a conversation DAG). Each turn sees
+      the full prior transcript via normal context wiring. */
+  roleplay: (parentId: string, scenario: string, roles: { name: string; prompt: string }[], opts?: { rounds?: number }) => Promise<void>;
   regenerate: (nodeId: string) => void;
   batchMergeSummarize: (nodeIds: string[], deleteAfter?: boolean, intent?: string) => void;
   /** Weave the highlights of the selected nodes into one cited passage.
@@ -95,6 +103,7 @@ export interface LlmSlice {
    *  small even for whole-canvas selections; the passage cites [n] back to
    *  its source highlights. Optional intent steers angle/purpose. */
   weaveHighlights: (nodeIds: string[], intent?: string, highlightIds?: string[]) => Promise<void>;
+  generateVariants: (nodeId: string, mode: 'seeds' | 'baseline-embed' | 'loom', opts?: { count?: number; embeddings?: string[]; strengths?: number[] }) => Promise<void>;
   stopGeneration: (nodeId: string) => void;
 }
 

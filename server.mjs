@@ -284,6 +284,17 @@ function diffusionRequestOptions(diffusion) {
       strength_mode: d.strengthMode ?? 'state',
     };
   }
+  // Depth-ControlNet: document-guided preconditioning. The document is the
+  // conditioning input (its vocabulary biases the sampler); the prompt stays
+  // untouched. One inference carries prompt + document + embedding together.
+  if (d.document?.text) {
+    body.document = {
+      text: String(d.document.text).slice(0, 262_144),
+      strength: Number(d.document.strength ?? 1.0),
+      ...(Number.isInteger(d.document.maxTerms) ? { max_terms: d.document.maxTerms } : {}),
+    };
+  }
+  if (d.controlnetAdapter) body.controlnet_adapter = d.controlnetAdapter;
   return body;
 }
 
@@ -827,6 +838,60 @@ app.get('/api/models', (req, res) => res.json(modelsPayload()));
 app.get('/api/reg-embeddings', async (req, res) => {
   try {
     const upstream = await fetch(`${DIFFUSION_BASE_URL}/embeddings`);
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: `Diffusion sidecar returned HTTP ${upstream.status}` });
+      return;
+    }
+    res.json(await upstream.json());
+  } catch (err) {
+    res.status(502).json({ error: `Could not reach diffusion sidecar: ${err.message}` });
+  }
+});
+
+// Image generation proxy: forwards {prompt, size, n} to any
+// OpenAI-compatible /v1/images/generations endpoint (local ComfyUI bridge,
+// SD WebUI, or a hosted gateway). Response b64_json comes back as data URLs.
+const IMAGE_GEN_URL = process.env.IMAGE_GEN_URL || '';
+const IMAGE_GEN_KEY = process.env.IMAGE_GEN_KEY || '';
+
+app.post('/api/image-gen', async (req, res) => {
+  if (!IMAGE_GEN_URL) {
+    res.status(501).json({ error: 'No image endpoint configured. Set IMAGE_GEN_URL.' });
+    return;
+  }
+  const { prompt, size = '1024x1024', n = 1 } = req.body ?? {};
+  if (!prompt || typeof prompt !== 'string') {
+    res.status(400).json({ error: 'prompt required' });
+    return;
+  }
+  try {
+    const upstream = await fetch(IMAGE_GEN_URL.replace(/\/$/, '') + '/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(IMAGE_GEN_KEY ? { Authorization: `Bearer ${IMAGE_GEN_KEY}` } : {}),
+      },
+      body: JSON.stringify({ prompt, size, n, response_format: 'b64_json', model: process.env.IMAGE_GEN_MODEL || undefined }),
+    });
+    if (!upstream.ok) {
+      const err = await upstream.json().catch(() => null);
+      res.status(upstream.status).json({ error: err?.error?.message || `HTTP ${upstream.status}` });
+      return;
+    }
+    const data = await upstream.json();
+    const images = (data.data ?? [])
+      .map((d) => (d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url))
+      .filter(Boolean);
+    res.json({ images });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// List depth-controlnet adapters from the local diffusion sidecar.
+app.get('/api/controlnet-adapters', async (req, res) => {
+  try {
+    const upstream = await fetch(`${DIFFUSION_BASE_URL}/controlnet`);
     if (!upstream.ok) {
       res.status(upstream.status).json({ error: `Diffusion sidecar returned HTTP ${upstream.status}` });
       return;

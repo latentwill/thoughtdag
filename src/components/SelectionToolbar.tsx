@@ -16,6 +16,7 @@ type PendingAction = 'explore' | 'merge' | 'mergeDelete' | 'weave' | null;
 
 export default function SelectionToolbar() {
   const { selectedNodeIds, nodes, batchDelete, batchMergeSummarize, weaveHighlights, exploreFrom, alignSelection, setArchived, duplicateSelection, setNodeDiffusion } = useStore();
+  const generateVariants = useStore((s) => s.generateVariants);
   const t = useT();
   const [pending, setPending] = useState<PendingAction>(null);
   const [input, setInput] = useState('');
@@ -64,6 +65,9 @@ export default function SelectionToolbar() {
   const applyDiffusion = (d: DiffusionConfig | undefined) => {
     for (const id of selectedNodeIds) setNodeDiffusion(id, d);
   };
+  const loomSelection = (embeddings: string[], strengths: number[]) => {
+    for (const id of selectedNodeIds) void generateVariants(id, 'loom', { embeddings, strengths });
+  };
 
   const run = () => {
     const text = input.trim();
@@ -104,7 +108,7 @@ export default function SelectionToolbar() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <DiffusionPicker value={sharedDiffusion} onChange={applyDiffusion} />
+          <DiffusionPicker value={sharedDiffusion} onChange={applyDiffusion} onLoom={loomSelection} />
 
           <button
             onClick={() => toggle('merge')}

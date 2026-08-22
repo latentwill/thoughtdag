@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ThoughtNode, ThoughtEdge } from '../../types';
+import type { ThoughtNode, ThoughtEdge, DiffusionConfig } from '../../types';
 import { generateId } from '../../utils';
 import { autoLayout } from '../../lib/layout';
 import { getDescendantIds, selectionSinks, walkUpAncestors } from '../../lib/graph';
@@ -266,6 +266,118 @@ export const createLlmSlice: StateCreator<StoreState, [], [], LlmSlice> = (set, 
       }
     };
     await Promise.all(Array.from({ length: Math.min(LIMIT, created.length) }, worker));
+  },
+
+  /**
+   * Multi-character roleplay: each character takes `rounds` turns. Turn N is
+   * a child node of turn N-1 (chain wiring IS the transcript), so context
+   * flows through ordinary edges — no hidden state, the graph is the play.
+   */
+  roleplay: async (parentId: string, scenario: string, roles: { name: string; prompt: string }[], opts: { rounds?: number } = {}) => {
+    if (roles.length < 2) return;
+    const parent = get().nodes.find((n) => n.id === parentId);
+    if (!parent) return;
+    const rounds = Math.min(Math.max(opts.rounds ?? 3, 1), 8);
+    get().pushHistory();
+    get().logEvent('fanout', parentId, { roles: roles.length, talk: true });
+
+    // Opening node: the scenario itself, asked from the anchor — every
+    // character's replies hang off this chain root.
+    const rootId = generateId();
+    const rootNode: ThoughtNode = {
+      id: rootId,
+      type: 'thought',
+      position: { x: parent.position.x + 640, y: parent.position.y },
+      dragHandle: '.drag-handle',
+      data: {
+        question: scenario,
+        response: '',
+        responses: [], responseIndex: -1,
+        isCollapsed: false, isEditing: false, isEditingResponse: false,
+        isLoading: true, tokenCount: 0,
+        highlights: [], highlightMode: 'tag',
+        attachments: [], excludedAttachmentIds: [], includedAttachmentIds: [],
+        roleMode: 'inherit', isRoot: false, isBranch: false,
+        stepKind: 'human',
+        webSearch: false, scholarSearch: false,
+      },
+    };
+    const rootEdge: ThoughtEdge = {
+      id: `edge-${parentId}-${rootId}`,
+      source: parentId, target: rootId,
+      sourceHandle: 'branch', targetHandle: 'left',
+      type: 'smoothstep',
+      style: { stroke: COLORS.warm, strokeWidth: 2 },
+      markerEnd: { type: 'arrowclosed' as const, color: COLORS.warm, width: 18, height: 18 },
+      data: { isBranchFromSelection: true, branchYRatio: 0.5 },
+    };
+    set({
+      nodes: [...get().nodes, rootNode],
+      edges: [...get().edges, rootEdge],
+      selectedNodeId: null, selectedNodeIds: [],
+    });
+    const ctx = buildContext(parentId, get().nodes, get().edges, undefined, undefined, undefined, get().staleIds);
+    await runNodeGeneration(set, get, rootId, {
+      question: scenario,
+      messages: [...ctx.messages, { role: 'user', content: scenario }],
+    });
+
+    let prevId = rootId;
+    for (let round = 0; round < rounds; round++) {
+      for (const role of roles) {
+        const turnId = generateId();
+        const y = parent.position.y + (round * roles.length + roles.indexOf(role)) * 300;
+        const turnNode: ThoughtNode = {
+          id: turnId,
+          type: 'thought',
+          position: { x: parent.position.x + 640 + (round + 1) * 600, y },
+          dragHandle: '.drag-handle',
+          data: {
+            question: `[${role.name} speaking, round ${round + 1}]`,
+            response: '',
+            responses: [], responseIndex: -1,
+            isCollapsed: false, isEditing: false, isEditingResponse: false,
+            isLoading: true, tokenCount: 0,
+            highlights: [], highlightMode: 'tag',
+            attachments: [], excludedAttachmentIds: [], includedAttachmentIds: [],
+            roleMode: 'reset', isRoot: false, isBranch: true,
+            appliedRole: role.prompt.slice(0, 80),
+            webSearch: false, scholarSearch: false,
+          },
+        };
+        const turnEdge: ThoughtEdge = {
+          id: `edge-${prevId}-${turnId}`,
+          source: prevId, target: turnId,
+          sourceHandle: 'continue', targetHandle: 'top',
+          type: 'smoothstep',
+          style: { stroke: COLORS.warm, strokeWidth: 2 },
+          markerEnd: { type: 'arrowclosed' as const, color: COLORS.warm, width: 18, height: 18 },
+          data: {},
+        };
+        set({ nodes: [...get().nodes, turnNode], edges: [...get().edges, turnEdge] });
+
+        // Context: everything upstream through the chain (the transcript so
+        // far), plus THIS character's persona as the system layer and an
+        // instruction to answer in their voice, in character.
+        const walkCtx = buildContext(
+          turnId,
+          get().nodes.map((n) => (n.id === turnId ? { ...n, data: { ...n.data, question: '', response: '' } } : n)),
+          get().edges, undefined, undefined, undefined, get().staleIds,
+        );
+        const messages: ContextMessage[] = [
+          { role: 'system', content: role.prompt },
+          ...walkCtx.messages,
+          { role: 'user', content: `${scenario}\n\nYou are ${role.name}. Reply to the conversation above in your own voice, in character, briefly (under 120 words). Do not speak for anyone else.` },
+        ];
+        await runNodeGeneration(set, get, turnId, {
+          question: `${role.name} · round ${round + 1}`,
+          messages,
+          versionMode: 'replace',
+        });
+        prevId = turnId;
+      }
+    }
+    set((state) => ({ nodes: autoLayout(state.nodes, state.edges) }));
   },
 
   /**
@@ -670,6 +782,59 @@ ${intent.trim()}` : ''}` },
     ];
 
     await runNodeGeneration(set, get, id, { question: weaveQuestion, messages });
+  },
+
+  /**
+   * Variant generations, all appended as versions of ONE node:
+   * - seeds: N runs of the node's current diffusion config with fresh seeds;
+   * - baseline-embed: one run with no embedding (base) + one with it —
+   *   the A/B pair shows exactly what the embedding adds;
+   * - loom: cartesian product of the given embeddings × strengths.
+   */
+  generateVariants: async (nodeId: string, mode: 'seeds' | 'baseline-embed' | 'loom', opts: { count?: number; embeddings?: string[]; strengths?: number[] } = {}) => {
+    const node = get().nodes.find((n) => n.id === nodeId);
+    if (!node || node.data.isLoading) return;
+    const base: DiffusionConfig = { ...(node.data.diffusion ?? {}) };
+    type Variant = { label: string; config: DiffusionConfig };
+    let variants: Variant[] = [];
+    if (mode === 'seeds') {
+      const count = Math.min(Math.max(opts.count ?? 3, 2), 8);
+      variants = Array.from({ length: count }, (_, i) => ({
+        label: `seed ${i + 1}`,
+        config: { ...base, seed: Math.floor(Math.random() * 2 ** 31) },
+      }));
+    } else if (mode === 'baseline-embed') {
+      if (!base.embedding) return;
+      variants = [
+        { label: 'baseline', config: { ...base, embedding: undefined } },
+        { label: 'embedding', config: { ...base } },
+      ];
+    } else {
+      const embeddings = opts.embeddings?.length ? opts.embeddings : base.embedding ? [base.embedding] : [];
+      const strengths = opts.strengths?.length ? opts.strengths : [0.5, 1.0, 2.0];
+      variants = embeddings.flatMap((e) => strengths.map((s) => ({
+        label: `${e.split('/').pop()} ×${s}`,
+        config: { ...base, embedding: e, strength: s },
+      })));
+      if (variants.length === 0) return;
+    }
+
+    get().pushHistory();
+    // Sequential: each run appends a version; the last one stays on top.
+    for (const v of variants) {
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, diffusion: v.config, isLoading: true } } : n
+        ),
+      }));
+      await get().rerunNode(nodeId);
+    }
+    // Restore the node's standing config so future reruns keep using it.
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, diffusion: base } } : n
+      ),
+    }));
   },
 
   stopGeneration: (nodeId: string) => {

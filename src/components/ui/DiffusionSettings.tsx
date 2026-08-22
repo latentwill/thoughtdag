@@ -12,11 +12,22 @@ import type { DiffusionConfig } from '../../types';
 
 export default function DiffusionSettings({ nodeId }: { nodeId: string }) {
   const setNodeDiffusion = useStore((s) => s.setNodeDiffusion);
+  const generateVariants = useStore((s) => s.generateVariants);
   const nodeDiffusion = useStore((s) => s.nodes.find((n) => n.id === nodeId)?.data.diffusion);
-  return <DiffusionPicker value={nodeDiffusion} onChange={(d) => setNodeDiffusion(nodeId, d)} />;
+  return (
+    <DiffusionPicker
+      value={nodeDiffusion}
+      onChange={(d) => setNodeDiffusion(nodeId, d)}
+      onLoom={(embeddings, strengths) => void generateVariants(nodeId, 'loom', { embeddings, strengths })}
+    />
+  );
 }
 
-export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; onChange: (d?: DiffusionConfig) => void }) {
+export function DiffusionPicker({ value, onChange, onLoom }: {
+  value?: DiffusionConfig;
+  onChange: (d?: DiffusionConfig) => void;
+  onLoom?: (embeddings: string[], strengths: number[]) => void;
+}) {
   const [embeddings, setEmbeddings] = useState<RegEmbedding[]>([]);
   const [open, setOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -54,16 +65,37 @@ export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; 
   const inputCls = 'w-full text-xs text-ink bg-wash border border-line rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent/40';
   const labelCls = 'text-2xs text-ink-faint uppercase tracking-wider font-medium';
 
+  // Inline strength scrub: pointer-drag horizontally on the chip to nudge
+  // REG strength in 0.1 steps — no dialog needed. A plain click still opens
+  // the full picker (drag distance < 4px counts as a click).
+  const dragRef = useRef<{ startX: number; startStrength: number } | null>(null);
+  const onChipPointerDown = (e: React.PointerEvent) => {
+    if (!d.embedding) return;
+    dragRef.current = { startX: e.clientX, startStrength: d.strength ?? 1.0 };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onChipPointerMove = (e: React.PointerEvent) => {
+    const st = dragRef.current;
+    if (!st) return;
+    const delta = Math.round((e.clientX - st.startX) / 8) * 0.1;
+    const next = Math.max(0, Math.min(32, Math.round((st.startStrength + delta) * 10) / 10));
+    if (next !== (d.strength ?? 1.0)) setField('strength', next);
+  };
+  const onChipPointerUp = () => { dragRef.current = null; };
+
   return (
     <div ref={rootRef} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        title="DiffusionGemma REG settings"
-        className={`text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 max-w-[210px] ${d.embedding ? 'bg-pink-500/10 text-pink-500' : 'bg-wash hover:bg-line text-ink-muted'}`}
+        onPointerDown={onChipPointerDown}
+        onPointerMove={onChipPointerMove}
+        onPointerUp={onChipPointerUp}
+        title={d.embedding ? 'DiffusionGemma REG settings — drag horizontally to adjust strength' : 'DiffusionGemma REG settings'}
+        className={`text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 min-w-0 max-w-full ${d.embedding ? 'bg-pink-500/10 text-pink-500 cursor-ew-resize' : 'bg-wash hover:bg-line text-ink-muted'}`}
       >
         <Sparkles size={14} strokeWidth={1.75} className="shrink-0" />
         <span className="text-xs truncate font-medium">{d.embedding ? d.embedding.split('/').pop() : 'Base'}</span>
-        {d.strength !== undefined && <span className="text-2xs shrink-0">×{d.strength}</span>}
+        {d.embedding && <span className="text-2xs shrink-0 tabular-nums">×{(d.strength ?? 1.0).toFixed(1)}</span>}
       </button>
 
       {open && (
@@ -117,6 +149,23 @@ export function DiffusionPicker({ value, onChange }: { value?: DiffusionConfig; 
 
           {advanced && (
             <div className="border-t border-line mt-1 pt-2 px-3 pb-2 grid grid-cols-2 gap-2">
+              <div className="col-span-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const strengths = [0.5, 1.0, 2.0];
+                    const targets = embeddings.slice(0, 4).map((emb) => emb.id);
+                    if (targets.length === 0) return;
+                    onLoom?.(targets, strengths);
+                    setOpen(false);
+                  }}
+                  disabled={embeddings.length === 0}
+                  className="w-full text-xs px-2 py-1.5 rounded-lg bg-pink-500/10 text-pink-500 hover:bg-pink-500/20 transition-colors disabled:opacity-30"
+                  title="Run every listed embedding × strength as versions of this node"
+                >
+                  Loom · all embeddings × 0.5 / 1 / 2
+                </button>
+              </div>
               <label className="col-span-2">
                 <span className={labelCls}>Seed (empty = random)</span>
                 <input type="number" step="1" min="0" max="9223372036854775807" value={Number.isInteger(d.seed) ? d.seed : ''} onChange={(e) => { if (e.target.value === '') { setField('seed', undefined); return; } const n = Number(e.target.value); if (Number.isInteger(n)) setField('seed', n); }} className={inputCls} />

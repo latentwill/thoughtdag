@@ -161,6 +161,9 @@ export interface ThoughtData extends Record<string, unknown> {
       only: never enters context, fingerprints or summaries. Models that
       don't emit reasoning leave holes (undefined). */
   reasonings?: (string | undefined | null)[];
+  /** Generated image for this node (data URL), from the image-gen action. */
+  generatedImage?: string;
+  generatingImage?: boolean; // transient: image call in flight
   rolePrompt?: string;
   appliedRole?: string; // the role actually used when generating the current response
   roleSourceNodeId?: string; // user-chosen role source node (for multi-parent role conflict)
