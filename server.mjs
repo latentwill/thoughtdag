@@ -854,6 +854,10 @@ app.get('/api/reg-embeddings', async (req, res) => {
 const IMAGE_GEN_URL = process.env.IMAGE_GEN_URL || '';
 const IMAGE_GEN_KEY = process.env.IMAGE_GEN_KEY || '';
 
+const IMAGE_GEN_DIR = process.env.IMAGE_GEN_DIR
+  || path.join(os.homedir(), '.thoughtdag', 'images');
+fs.mkdirSync(IMAGE_GEN_DIR, { recursive: true });
+
 app.post('/api/image-gen', async (req, res) => {
   if (!IMAGE_GEN_URL) {
     res.status(501).json({ error: 'No image endpoint configured. Set IMAGE_GEN_URL.' });
@@ -879,12 +883,38 @@ app.post('/api/image-gen', async (req, res) => {
       return;
     }
     const data = await upstream.json();
-    const images = (data.data ?? [])
-      .map((d) => (d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url))
-      .filter(Boolean);
+    const crypto = await import('node:crypto');
+    const images = [];
+    for (const d of data.data ?? []) {
+      // Disk-backed: the canvas stores a short URL, not a megabyte of base64.
+      if (d.b64_json) {
+        const id = crypto.randomBytes(8).toString('hex');
+        fs.writeFileSync(path.join(IMAGE_GEN_DIR, `${id}.png`), Buffer.from(d.b64_json, 'base64'));
+        images.push(`/api/image-gen/file/${id}`);
+      } else if (d.url) {
+        images.push(d.url);
+      }
+    }
     res.json({ images });
   } catch (err) {
     res.status(502).json({ error: err.message });
+  }
+});
+
+// Serve generated images from the store. Ids are server-generated random
+// hex — no traversal risk; content type is fixed to PNG.
+app.get('/api/image-gen/file/:id', async (req, res) => {
+  const id = String(req.params.id);
+  if (!/^[a-f0-9]{16}$/.test(id)) {
+    res.status(400).json({ error: 'bad image id' });
+    return;
+  }
+  const file = path.join(IMAGE_GEN_DIR, `${id}.png`);
+  try {
+    await fs.promises.access(file);
+    res.type('image/png').send(await fs.promises.readFile(file));
+  } catch {
+    res.status(404).json({ error: 'image not found' });
   }
 });
 

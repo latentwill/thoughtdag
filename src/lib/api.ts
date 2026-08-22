@@ -296,9 +296,10 @@ export async function generateImage(prompt: string, size = '1024x1024'): Promise
     throw new Error(errorText(err, err.error ?? `HTTP ${res.status}`));
   }
   const data = await res.json();
-  const first = (data.images ?? [])[0];
+  const first: string | undefined = (data.images ?? [])[0];
   if (!first) throw new Error('Image endpoint returned no images');
-  return first;
+  // Disk-backed store returns a relative /api/... path; dev needs the proxy origin.
+  return first.startsWith('/') ? `${API_BASE}${first}` : first;
 }
 
 export interface RegEmbedding {
